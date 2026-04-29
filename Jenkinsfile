@@ -64,8 +64,15 @@ spec:
       steps {
         container('git') {
           withCredentials([string(credentialsId: 'github-pat', variable: 'GITHUB_PAT')]) {
+            // alpine/git's default WORKDIR is /git, so `cd` into the
+            // workspace explicitly before running git. Also mark the
+            // workspace as a safe directory — when the SCM checkout was
+            // done by jnlp under a different uid, git in this container
+            // can refuse with "dubious ownership" otherwise.
             sh '''
               set -eu
+              cd "${WORKSPACE}"
+              git config --global --add safe.directory "${WORKSPACE}"
               git config user.email jenkins@lw-idp.local
               git config user.name  jenkins
               git fetch origin main

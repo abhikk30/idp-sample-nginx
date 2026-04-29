@@ -30,7 +30,28 @@ spec:
   }
 
   stages {
+    // Skip the entire pipeline when the head commit is one of our own
+    // chart-bump commits. SCM-side messageExclusion is deprecated for
+    // Pipeline jobs (the git plugin warns and silently ignores it),
+    // so we gate inside the Jenkinsfile instead. Without this gate
+    // every successful build pushes a bump commit which the SCM poller
+    // sees as a real change → next build → next bump → infinite loop.
+    stage('Skip if bump commit') {
+      steps {
+        script {
+          def msg = sh(returnStdout: true, script: 'git log -1 --pretty=%B').trim()
+          if (msg.startsWith('chore: bump image.tag')) {
+            echo "Bump commit detected (${msg.split('\n')[0]}) — skipping CI."
+            env.SKIP_BUILD = 'true'
+          } else {
+            env.SKIP_BUILD = 'false'
+          }
+        }
+      }
+    }
+
     stage('Compute tag') {
+      when { expression { return env.SKIP_BUILD != 'true' } }
       steps {
         script {
           env.SHORT_SHA = (env.GIT_COMMIT ?: '').take(7) ?: env.BUILD_NUMBER
@@ -41,12 +62,14 @@ spec:
     }
 
     stage('Stamp html with SHA') {
+      when { expression { return env.SKIP_BUILD != 'true' } }
       steps {
         sh 'sed -i "s/__BUILD_SHA__/${SHORT_SHA}/" html/index.html'
       }
     }
 
     stage('Build & push image') {
+      when { expression { return env.SKIP_BUILD != 'true' } }
       steps {
         container('kaniko') {
           sh '''
@@ -61,6 +84,7 @@ spec:
     }
 
     stage('Bump chart tag and push') {
+      when { expression { return env.SKIP_BUILD != 'true' } }
       steps {
         container('git') {
           withCredentials([string(credentialsId: 'github-pat', variable: 'GITHUB_PAT')]) {

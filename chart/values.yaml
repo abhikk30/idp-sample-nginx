@@ -1,7 +1,7 @@
 replicaCount: 1
 image:
   repository: localhost:5001/lw-idp/sample-nginx
-  tag: d9ae36a
+  tag: 48075ab
   pullPolicy: IfNotPresent
 service:
   type: ClusterIP

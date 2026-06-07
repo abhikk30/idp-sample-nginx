@@ -15,6 +15,16 @@ spec:
       image: alpine/git:latest
       command: ["cat"]
       tty: true
+    - name: trivy
+      image: aquasec/trivy:0.58.1
+      imagePullPolicy: IfNotPresent
+      command: ["cat"]
+      tty: true
+      env:
+        - name: TRIVY_INSECURE
+          value: "true"
+        - name: TRIVY_NO_PROGRESS
+          value: "true"
 '''
     }
   }
@@ -78,6 +88,38 @@ spec:
               --context=. \
               --destination=${REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} \
               --insecure --skip-tls-verify
+          '''
+        }
+      }
+    }
+
+    // Gate the chart bump on a Trivy scan of the freshly-pushed image. Only
+    // CRITICAL severity fails the build, and `--ignore-unfixed` drops CVEs
+    // that have no upstream patch yet (those would block builds on issues
+    // we can't fix). HIGH/MEDIUM/LOW are summarized for visibility but not
+    // blocking — surface them via Trivy Operator's runtime scan in the IDP
+    // Security tab instead.
+    stage('Scan image for vulnerabilities') {
+      when { expression { return env.SKIP_BUILD != 'true' } }
+      steps {
+        container('trivy') {
+          sh '''
+            set -eu
+            # Visibility pass: summarize HIGH/CRITICAL counts (informational).
+            trivy image \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format table \
+              --scanners vuln \
+              ${REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} || true
+
+            # Gating pass: fail the build on any fixable CRITICAL CVE.
+            trivy image \
+              --severity CRITICAL \
+              --ignore-unfixed \
+              --exit-code 1 \
+              --scanners vuln \
+              ${REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
           '''
         }
       }
